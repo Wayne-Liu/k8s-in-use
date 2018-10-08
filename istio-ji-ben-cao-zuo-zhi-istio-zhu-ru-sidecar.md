@@ -1,9 +1,15 @@
 # Istio基本操作之Istio注入Sidecar
-# 注入
-## 手工注入Sidecar
+
+## Istio基本操作之Istio注入Sidecar
+
+## 注入
+
+### 手工注入Sidecar
+
 手工注入过程会修改控制器（例如deployment）的配置。通过修改pod template的手段，把Sidecar注入到目标控制器生成的所有pod之中。  
 使用集群内置配置将Sidecar注入到Deployment中：
-```
+
+```text
 $ istioctl kube-inject -f samples/sleep/sleep.yaml | kubectl apply -f -
 
 [root@node1 istio-1.0.2]# kubectl get pod
@@ -17,10 +23,14 @@ sleep   1         1         1            1           14m   sleep,istio-proxy   t
 service "sleep" deleted
 deployment.extensions "sleep" deleted
 ```
-查看生成的sleep pod，发现sleep pod中包含两个容器。对当前生成的deployment进行删除。  
-## 应用部署
+
+查看生成的sleep pod，发现sleep pod中包含两个容器。对当前生成的deployment进行删除。
+
+### 应用部署
+
 部署sleep应用，检查一下是不是只是生成一个容器。
-```
+
+```text
 [root@node1 istio-1.0.2]# kubectl apply -f samples/sleep/sleep.yaml 
 service/sleep created
 deployment.extensions/sleep created
@@ -32,8 +42,10 @@ sleep   1         1         1            1           16s    sleep        tutum/c
 NAME                     READY   STATUS    RESTARTS   AGE
 sleep-7549f66447-rw5sp   1/1     Running   0          63s
 ```
+
 给当前命名空间设置标签：istio-injection=enabled:
-```
+
+```text
 [root@node1 istio-1.0.2]# kubectl get namespace -L istio-injection
 NAME            STATUS   AGE    ISTIO-INJECTION
 default         Active   3d8h   
@@ -51,8 +63,10 @@ istio-system    Active   2d
 kube-public     Active   3d8h   
 kube-system     Active   3d8h
 ```
+
 自动注入设置之后，在创建pod时触发Sidecar的注入过程。按照教程应该会生成两个pod。但是实际情况是pod删除之后就不能生成新的pod了。
-```
+
+```text
 [root@node1 istio-1.0.2]# kubectl get deployment
 NAME    DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
 sleep   1         0         0            0           7m31s
@@ -97,13 +111,16 @@ Events:
   ----    ------             ----  ----                   -------
   Normal  ScalingReplicaSet  8m    deployment-controller  Scaled up replica set sleep-7549f66447 to 1
 ```
-查看sleep副本集Events
-发现报错
-```
+
+查看sleep副本集Events 发现报错
+
+```text
 Error creating: Internal error occurred: failed calling admission webhook "sidecar-injector.istio.io": Post https://istio-sidecar-injector.istio-system.svc:443/inject?timeout=30s: EOF
 ```
+
 问题描述issue
-```
+
+```text
 https://github.com/istio/istio/issues/7233
 ```
 
