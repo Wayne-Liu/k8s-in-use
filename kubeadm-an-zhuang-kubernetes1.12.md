@@ -1,22 +1,33 @@
-# Kubeadm 安装kubernetes 1.12
+# kubeadm安装kubernetes1.12
+
+## Kubeadm 安装kubernetes 1.12
 
 kubeadm是官方推荐的kubernetes的安装教程，由于国内搭建过程中拉取google的镜像有网络问题，所以搭建之前首先需要解决网络问题，可以通过阿里云的香港节点通过SS做流量代理。
-# 准备工作
-## 网络环境准备
-## centos7下使用ss代理,开启docker的sock5代理
-### 1.安装客户端
-```
+
+## 准备工作
+
+### 网络环境准备
+
+### centos7下使用ss代理,开启docker的sock5代理
+
+#### 1.安装客户端
+
+```text
 yum -y install epel-release
 yum -y install python-pip
 pip install shadowsocks
 ```
+
 新建客户端配置文件
-```
+
+```text
 mkdir /etc/shadowsocks
 vi /etc/shadowsocks/shadowsocks.json
 ```
+
 添加配置信息如下
-```
+
+```text
 {
     "server":"1.1.1.1",
     "server_port":1035,
@@ -29,8 +40,10 @@ vi /etc/shadowsocks/shadowsocks.json
     "workers": 1
 }
 ```
+
 配置开机启动，新建脚本文件/etc/systemd/system/shadowsocks.service
-```
+
+```text
 [Unit]
 Description=Shadowsocks
 [Service]
@@ -39,39 +52,51 @@ ExecStart=/usr/bin/sslocal -c /etc/shadowsocks/shadowsocks.json
 [Install]
 WantedBy=multi-user.target
 ```
+
 启动SS客户端
-```
+
+```text
 systemctl enable shadowsocks.service
 systemctl start shadowsocks.service
 systemctl status shadowsocks.service
 ```
+
 验证SS客户端是否正常运行
-```
+
+```text
 curl --socks5 127.0.0.1:1080 http://httpbin.org/ip
 ```
+
 如果SS客户端正常运行，则结果如下
-```
+
+```text
 {
   "origin": "x.x.x.x"       #你的Shadowsock服务器IP
 }
 ```
-### 安装配置Privoxy
-SS使用socks5协议通信，常见wget，curl协议走http协议，需要一种将Http代理桥接成socks5的方案，Privoxy就是做这个转换的工具。
-安装privoxy
-```
+
+#### 安装配置Privoxy
+
+SS使用socks5协议通信，常见wget，curl协议走http协议，需要一种将Http代理桥接成socks5的方案，Privoxy就是做这个转换的工具。 安装privoxy
+
+```text
 yum -y install privoxy
 systemctl enable privoxy
 systemctl start privoxy
 systemctl status privoxy
 ```
+
 修改配置文件/etc/privoxy/config
-```
+
+```text
 确保如下内容没有被注释掉
 listen-address 127.0.0.1:8118 # 8118 是默认端口，不用改
 forward-socks5t / 127.0.0.1:1080 . #转发到本地端口，注意最后有个点
 ```
+
 设置http/https代理，在/etc/profile文件中添加如下内容
-```
+
+```text
 PROXY_HOST=127.0.0.1
 export all_proxy=http://$PROXY_HOST:8118
 export ftp_proxy=http://$PROXY_HOST:8118
@@ -79,70 +104,92 @@ export http_proxy=http://$PROXY_HOST:8118
 export https_proxy=http://$PROXY_HOST:8118
 export no_proxy=localhost,172.16.0.0/16,192.168.0.0/16.,127.0.0.1,10.10.0.0/16
 ```
+
 使环境变量生效
-```
+
+```text
 source /etc/profile
 ```
+
 测试
-```
+
+```text
 curl www.google.com
 ```
+
 取消使用代理
-```
+
+```text
 while read var; do unset $var; done < <(env | grep -i proxy | awk -F= '{print $1}')
 ```
-### docker使用socks5,由于当前docker没有安装，可在安装docker后设置代理
+
+#### docker使用socks5,由于当前docker没有安装，可在安装docker后设置代理
+
 验证一下代理端口是否生效
-```
+
+```text
 [root@cloud4ourself-kcluster1 ~]# grep socks5 /etc/privoxy/config |grep -v ^# 
 forward-socks5 / 127.0.0.1:1080 . 
 [root@cloud4ourself-kcluster1 ~]# systemctl start privoxy 
 [root@cloud4ourself-kcluster1 ~]# export http_proxy=http://127.0.0.1:8118 [root@cloud4ourself-kcluster1 privoxy]# ss -antp |grep 1080 LISTEN 0 128 127.0.0.1:1080 *:* users:(("sslocal",pid=19727,fd=4)) 
 [root@cloud4ourself-kcluster1 privoxy]# ss -antp |grep 8118 LISTEN 0 128 127.0.0.1:8118 *:* users:(("privoxy",pid=30250,fd=4))
 ```
-docker的配置文件vim /usr/lib/systemd/system/docker.service
-[Service]下增加
-```
+
+docker的配置文件vim /usr/lib/systemd/system/docker.service \[Service\]下增加
+
+```text
 Environment=HTTP_PROXY=http://127.0.0.1:8118/ 
 Environment=HTTPS_PROXY=http://127.0.0.1:8118/ 
 Environment=NO_PROXY=localhost,127.0.0.1,m1empwb1.mirror.aliyuncs.com,docker.io,
 registry.cn-hangzhou.aliyuncs.com
 ```
-```
+
+```text
 [root@cloud4ourself-kcluster1 system]# systemctl daemon-reload
 [root@cloud4ourself-kcluster1 system]# systemctl show docker |grep 127.0.0.1 
 Environment=GOTRACEBACK=crash HTTP_PROXY=http://127.0.0.1:8118/ HTTPS_PROXY=http://127.0.0.1:8118/ NO_PROXY=localhost,127.0.0.1,m1empwb1.mirror.aliyuncs.com,docker.io,registry.cn-hangzhou.aliyuncs.com 
 [root@cloud4ourself-kcluster1 system]# systemctl restart docker
 ```
+
 测试
-```
+
+```text
 [root@node1 ~]# ss -antp |grep EST |egrep '1080|8118'
 ESTAB      0      0      127.0.0.1:50028              127.0.0.1:1080                users:(("privoxy",pid=19768,fd=5))
 ESTAB      0      0      127.0.0.1:1080               127.0.0.1:50028               users:(("sslocal",pid=19573,fd=8))
 ESTAB      0      0      127.0.0.1:51204              127.0.0.1:8118                users:(("kube-apiserver",pid=22225,fd=98))
 ESTAB      0      0      127.0.0.1:8118               127.0.0.1:51204               users:(("privoxy",pid=19768,fd=3))
 ```
-## 系统设置
+
+### 系统设置
+
 准备的三台Centos7.3主机如下：
-```
+
+```text
 [root@node1 ~]# cat /etc/hosts
 10.10.4.12  node1
 10.10.4.13  node2
 10.10.4.14  node3
 ```
+
 各节点之间通信需要用到不同端口号，需要设置防火墙过滤规则，具体规则在[Check Required Ports](https://kubernetes.io/docs/setup/independent/install-kubeadm/#check-required-ports)中。由于我这边是内网环境，为简单起见，我直接关闭防火墙。
-```
+
+```text
 systemctl stop firewalld
 systemctl disable firewalld
 ```
+
 禁用SELinux
-```
+
+```text
 setenforce 0
 vi /etc/selinux/config
 SELINUX=disabled
 ```
+
 iptables被绕过导致路由不正确，需要设置net.bridge.bridge-nf-call-iptables为1
-```
+
+```text
 cat <<EOF >  /etc/sysctl.d/k8s.conf
 net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
@@ -153,16 +200,21 @@ sysctl --system
 modprobe br_netfilter
 sysctl -p /etc/sysctl.d/k8s.conf
 ```
-## 安装Docker
+
+### 安装Docker
+
 添加docker-ce的yum源
-```
+
+```text
 yum install -y yum-utils device-mapper-persistent-data lvm2
 yum-config-manager \
     --add-repo \
     https://download.docker.com/linux/centos/docker-ce.repo
 ```
+
 查看当前的Docker版本
-```
+
+```text
 yum list docker-ce.x86_64  --showduplicates |sort -r
 docker-ce.x86_64            18.06.1.ce-3.el7                   docker-ce-stable 
 docker-ce.x86_64            18.06.0.ce-3.el7                   docker-ce-stable 
@@ -181,8 +233,10 @@ docker-ce.x86_64            17.03.2.ce-1.el7.centos            @docker-ce-stable
 docker-ce.x86_64            17.03.1.ce-1.el7.centos            docker-ce-stable 
 docker-ce.x86_64            17.03.0.ce-1.el7.centos            docker-ce-stable
 ```
+
 kubernetes对docker17.03做过验证，所以我们安装docker17.03版本
-```
+
+```text
 yum makecache fast
 
 yum install -y --setopt=obsoletes=0 \
@@ -192,19 +246,26 @@ yum install -y --setopt=obsoletes=0 \
 systemctl start docker
 systemctl enable docker
 ```
+
 Docker从1.13版本开始调整了默认的防火墙规则，禁用了iptables filter表中FOWARD链，这样会引起Kubernetes集群中跨Node的Pod无法通信，在各个Docker节点执行下面的命令：
-```
+
+```text
 iptables -P FORWARD ACCEPT
 ```
+
 可在docker的systemd unit文件中以ExecStartPost加入上面的命令：
-```
+
+```text
 ExecStartPost=/usr/sbin/iptables -P FORWARD ACCEPT
 systemctl daemon-reload
 systemctl restart docker
 ```
-# 安装Kubeadm
-## 在每个节点上安装kubeadm和kubelet
-```
+
+## 安装Kubeadm
+
+### 在每个节点上安装kubeadm和kubelet
+
+```text
 cat <<EOF > /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
@@ -216,8 +277,10 @@ gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cl
 exclude=kube*
 EOF
 ```
+
 执行安装以及执行日志
-```
+
+```text
 yum makecache fast
 yum install -y kubelet kubeadm kubectl
 
@@ -228,28 +291,35 @@ Installed:
 Dependency Installed:
   cri-tools.x86_64 0:1.12.0-0  kubernetes-cni.x86_64 0:0.6.0-0  socat.x86_64 0:1.7.3.2-2.el7
 ```
-kubernetes要求关闭系统的swap,如果不关闭，默认配置下kubelet将无法启动。
-关闭系统的Swap方法如下
-```
+
+kubernetes要求关闭系统的swap,如果不关闭，默认配置下kubelet将无法启动。 关闭系统的Swap方法如下
+
+```text
 swapoff -a
 修改 /etc/fstab 文件，注释掉 SWAP 的自动挂载，使用free -m确认swap已经关闭。 swappiness参数调整，修改/etc/sysctl.d/k8s.conf添加下面一行：
 vm.swappiness=0
 执行sysctl -p /etc/sysctl.d/k8s.conf使修改生效。
 ```
-# 创建Master节点
-## kubeadm初始化集群
+
+## 创建Master节点
+
+### kubeadm初始化集群
+
 设置docker和kubelet开机启动，在三个节点上
-```
+
+```text
 systemctl enable docker
 systemctl enable kubelet
 ```
+
 接下来使用kubeadm初始化集群，选择node1作为Master Node，在node1上执行下面的命令：
-```
+
+```text
 [root@localhost ~]# kubeadm init   --kubernetes-version=v1.12.0   --pod-network-cidr=10.244.0.0/16   --apiserver-advertise-address=10.10.4.12
 [init] using Kubernetes version: v1.12.0
 [preflight] running pre-flight checks
-	[WARNING HTTPProxyCIDR]: connection to "10.96.0.0/12" uses proxy "http://127.0.0.1:8118". This may lead to malfunctional cluster setup. Make sure that Pod and Services IP ranges specified correctly as exceptions in proxy configuration
-	[WARNING HTTPProxyCIDR]: connection to "10.244.0.0/16" uses proxy "http://127.0.0.1:8118". This may lead to malfunctional cluster setup. Make sure that Pod and Services IP ranges specified correctly as exceptions in proxy configuration
+    [WARNING HTTPProxyCIDR]: connection to "10.96.0.0/12" uses proxy "http://127.0.0.1:8118". This may lead to malfunctional cluster setup. Make sure that Pod and Services IP ranges specified correctly as exceptions in proxy configuration
+    [WARNING HTTPProxyCIDR]: connection to "10.244.0.0/16" uses proxy "http://127.0.0.1:8118". This may lead to malfunctional cluster setup. Make sure that Pod and Services IP ranges specified correctly as exceptions in proxy configuration
 [preflight/images] Pulling images required for setting up a Kubernetes cluster
 [preflight/images] This might take a minute or two, depending on the speed of your internet connection
 [preflight/images] You can also perform this action in beforehand using 'kubeadm config images pull'
@@ -311,21 +381,23 @@ You can now join any number of machines by running the following on each node
 as root:
 
   kubeadm join 10.10.4.12:6443 --token 0be9k5.l1hm3oxdprqpzwqc --discovery-token-ca-cert-hash sha256:01d340f9b0e00b68afee3e1224f7c9a0fb37f0008d1374739b8f6debaa40bc12
+```
 
-```
-因为我们选择flannel作为Pod网络插件，所以上面的命令指定–pod-network-cidr=10.244.0.0/16。
-查看一下集群状态。
-```
+因为我们选择flannel作为Pod网络插件，所以上面的命令指定–pod-network-cidr=10.244.0.0/16。 查看一下集群状态。
+
+```text
 [root@node1 ~]# kubectl get cs
 NAME                 STATUS    MESSAGE              ERROR
 controller-manager   Healthy   ok                   
 scheduler            Healthy   ok                   
-etcd-0               Healthy   {"health": "true"} 
+etcd-0               Healthy   {"health": "true"}
 ```
+
 确认个组件都处于healthy状态。
 
 集群初始化如果遇到问题，可以使用下面的命令进行清理：
-```
+
+```text
 kubeadm reset
 ifconfig cni0 down
 ip link delete cni0
@@ -333,8 +405,10 @@ ifconfig flannel.1 down
 ip link delete flannel.1
 rm -rf /var/lib/cni/
 ```
-## 安装flannel网络插件
-```
+
+### 安装flannel网络插件
+
+```text
 [root@node1 k8s]# wget https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml
 
 [root@node1 k8s]# kubectl apply -f kube-flannel.yml 
@@ -344,8 +418,10 @@ serviceaccount/flannel created
 configmap/kube-flannel-cfg created
 daemonset.extensions/kube-flannel-ds created
 ```
+
 使用kubectl get pod --all-namespaces -o wide确保所有的Pod都处于Running状态
-```
+
+```text
 [root@node1 ~]# kubectl get pod --all-namespaces
 NAMESPACE       NAME                                             READY   STATUS    RESTARTS   AGE
 default         curl-5cc7b478b6-t8bp9                            1/1     Running   1          22h
@@ -370,19 +446,26 @@ kube-system     monitoring-grafana-56b668bccf-dql9w              1/1     Running
 kube-system     monitoring-influxdb-5c5bf4949d-kc5vd             1/1     Running   0          14h
 kube-system     tiller-deploy-6f6fd74b68-88rzm                   1/1     Running   0          20h
 ```
-## Master node 参与工作负载
+
+### Master node 参与工作负载
+
 使用kubeadm初始化的集群，出于安全考虑Pod不会被调度到Master Node上，也就是说Master Node不参与工作负载。这是因为master被打上了污点。
-```
+
+```text
 kubectl describe node node1 | grep Taint
 Taints:             node-role.kubernetes.io/master:NoSchedule
 ```
+
 因为这里搭建的是测试环境，去掉这个污点使node1参与工作负载：
-```
+
+```text
 kubectl taint nodes node1 node-role.kubernetes.io/master-
 node "node1" untainted
 ```
-## 测试DNS
-```
+
+### 测试DNS
+
+```text
 kubectl run curl --image=radial/busyboxplus:curl -i --tty
 If you don't see a command prompt, try pressing enter.
 [ root@curl-2716574283-xr8zd:/ ]$
@@ -393,18 +476,22 @@ Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
 Name:      kubernetes.default
 Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
 ```
+
 进入后执行nslookup kubernetes.default确认解析正常
-# 添加工作节点
+
+## 添加工作节点
+
 将4.13，4.14添加到集群中，首先需要在节点中关闭swap.
-```
+
+```text
 [root@localhost ~]# kubeadm join 10.10.4.12:6443 --token 0be9k5.l1hm3oxdprqpzwqc --discovery-token-ca-cert-hash sha256:01d340f9b0e00b68afee3e1224f7c9a0fb37f0008d1374739b8f6debaa40bc12
 [preflight] running pre-flight checks
-	[WARNING RequiredIPVSKernelModulesAvailable]: the IPVS proxier will not be used, because the following required kernel modules are not loaded: [ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh] or no builtin kernel ipvs support: map[ip_vs:{} ip_vs_rr:{} ip_vs_wrr:{} ip_vs_sh:{} nf_conntrack_ipv4:{}]
+    [WARNING RequiredIPVSKernelModulesAvailable]: the IPVS proxier will not be used, because the following required kernel modules are not loaded: [ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh] or no builtin kernel ipvs support: map[ip_vs:{} ip_vs_rr:{} ip_vs_wrr:{} ip_vs_sh:{} nf_conntrack_ipv4:{}]
 you can solve this problem with following methods:
  1. Run 'modprobe -- ' to load missing kernel modules;
 2. Provide the missing builtin kernel ipvs support
 
-	[WARNING Service-Docker]: docker service is not enabled, please run 'systemctl enable docker.service'
+    [WARNING Service-Docker]: docker service is not enabled, please run 'systemctl enable docker.service'
 [discovery] Trying to connect to API Server "10.10.4.12:6443"
 [discovery] Created cluster-info discovery client, requesting info from "https://10.10.4.12:6443"
 [discovery] Requesting info from "https://10.10.4.12:6443" again to validate TLS against the pinned public key
@@ -423,9 +510,10 @@ This node has joined the cluster:
 
 Run 'kubectl get nodes' on the master to see this node join the cluster.
 ```
-Node节点加入很顺利，但是在master节点上执行kubectl get nodes,会发现新加入的节点是NotReady状态。
-问题排查，查看pod状态，会发现flannel的pod一直是pending状态，查看Event事件显示0/3 nodes are available: 1 node(s) had taints that the pod didn't tolerate。这是因为工作节点添加了脏点限制，如下：
-```
+
+Node节点加入很顺利，但是在master节点上执行kubectl get nodes,会发现新加入的节点是NotReady状态。 问题排查，查看pod状态，会发现flannel的pod一直是pending状态，查看Event事件显示0/3 nodes are available: 1 node\(s\) had taints that the pod didn't tolerate。这是因为工作节点添加了脏点限制，如下：
+
+```text
 [root@node1 k8s]# kubectl get po -n kube-system
 NAME                            READY   STATUS    RESTARTS   AGE
 coredns-576cbf47c7-8khz2        1/1     Running   4          81m
@@ -449,16 +537,21 @@ Taints:             node.kubernetes.io/not-ready:NoSchedule
 [root@node1 k8s]# kubectl describe nodes node3 | grep Taint
 Taints:             <none>
 ```
-## 如何移除节点
+
+### 如何移除节点
+
 如果需要从集群中移除node2这个Node执行下面的命令：
 
 在master节点上执行：
-```
+
+```text
 kubectl drain node2 --delete-local-data --force --ignore-daemonsets
 kubectl delete node node2
 ```
+
 在node2上执行：
-```
+
+```text
 kubeadm reset
 ifconfig cni0 down
 ip link delete cni0
@@ -466,19 +559,25 @@ ifconfig flannel.1 down
 ip link delete flannel.1
 rm -rf /var/lib/cni/
 ```
-# Kubernetes常用组件部署
-## Helm安装
+
+## Kubernetes常用组件部署
+
+### Helm安装
+
 Helm由客户端命helm令行工具和服务端tiller组成，Helm的安装十分简单。 下载helm命令行工具到master节点node1的/usr/local/bin下，这里下载的2.11.0版本：
-```
+
+```text
 wget https://storage.googleapis.com/kubernetes-helm/helm-v2.11.0-linux-amd64.tar.gz
 tar -zxvf helm-v2.11.0-linux-amd64.tar.gz
 cd linux-amd64/
 cp helm /usr/local/bin/
 ```
+
 为了安装服务端tiller，还需要在这台机器上配置好kubectl工具和kubeconfig文件，确保kubectl工具可以在这台机器上访问apiserver且正常使用。 这里的node1节点以及配置好了kubectl。
 
 因为Kubernetes APIServer开启了RBAC访问控制，所以需要创建tiller使用的service account: tiller并分配合适的角色给它。 详细内容可以查看helm文档中的[Role-based Access Control](https://docs.helm.sh/using_helm/#role-based-access-control)。 这里简单起见直接分配cluster-admin这个集群内置的ClusterRole给它。创建rbac-config.yaml文件：
-```
+
+```text
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -498,13 +597,16 @@ subjects:
     name: tiller
     namespace: kube-system
 ```
-```
+
+```text
 kubectl create -f rbac-config.yaml
 serviceaccount/tiller created
 clusterrolebinding.rbac.authorization.k8s.io/tiller created
 ```
+
 接下来使用helm部署tiller:
-```
+
+```text
 helm init --service-account tiller --skip-refresh
 Creating /root/.helm
 Creating /root/.helm/repository
@@ -524,22 +626,28 @@ Please note: by default, Tiller is deployed with an insecure 'allow unauthentica
 For more information on securing your installation see: https://docs.helm.sh/using_helm/#securing-your-helm-installation
 Happy Helming!
 ```
+
 tiller默认被部署在k8s集群中的kube-system这个namespace下：
-```
+
+```text
 kubectl get pod -n kube-system -l app=helm
 NAME                            READY     STATUS    RESTARTS   AGE
 tiller-deploy-759cb9df9-fdg58   1/1       Running   0          2m
 ```
-```
+
+```text
 helm version
 Client: &version.Version{SemVer:"v2.11.0", GitCommit:"2e55dbe1fdb5fdb96b75ff144a339489417b146b", GitTreeState:"clean"}
 Server: &version.Version{SemVer:"v2.11.0", GitCommit:"2e55dbe1fdb5fdb96b75ff144a339489417b146b", GitTreeState:"clean"}
 ```
-注意由于某些原因需要网络可以访问gcr.io和kubernetes-charts.storage.googleapis.com，如果无法访问可以通过helm init --service-account tiller --tiller-image <your-docker-registry>/tiller:2.11.0 --skip-refresh使用私有镜像仓库中的tiller镜像
-## 使用Hlem部署Nginx Ingress
-为了便于将集群中的服务暴露到集群外部，从集群外部访问，接下来使用Helm将Nginx Ingress部署到Kubernetes上。
-ingress-nginx.yaml：
-```
+
+注意由于某些原因需要网络可以访问gcr.io和kubernetes-charts.storage.googleapis.com，如果无法访问可以通过helm init --service-account tiller --tiller-image /tiller:2.11.0 --skip-refresh使用私有镜像仓库中的tiller镜像
+
+### 使用Hlem部署Nginx Ingress
+
+为了便于将集群中的服务暴露到集群外部，从集群外部访问，接下来使用Helm将Nginx Ingress部署到Kubernetes上。 ingress-nginx.yaml：
+
+```text
 controller:
   service:
     externalIPs:
@@ -550,15 +658,19 @@ controller:
 Hang tight while we grab the latest from your chart repositories...
 ...Skip local chart repository
 ...Successfully got an update from the "stable" chart repository
-Update Complete. ⎈ Happy Helming!⎈ 
+Update Complete. ⎈ Happy Helming!⎈
 ```
-```
+
+```text
 curl http://10.10.4.12
 default backend - 404
 ```
-## 给kubernetes部署tls数字证书
-数字证书是自签名的泛域名证书，生成*.wayne.com的CN，需要用到server.key 和server.csr私钥和自签名证书
-```
+
+### 给kubernetes部署tls数字证书
+
+数字证书是自签名的泛域名证书，生成\*.wayne.com的CN，需要用到server.key 和server.csr私钥和自签名证书
+
+```text
  mkdir -p CA/{certs,crl,newcerts,private}
 touch CA/index.txt
 echo 00 > CA/serial
@@ -570,10 +682,14 @@ openssl req -new -key server.key -out server.csr -config openssl.cnf
 
  kubectl create secret tls frognew-com-tls-secret --cert=server.crt --key=server.key -n kube-system
 ```
+
 后边部署在kube-system命名空间中的dashboard要使用这个证书，因此这里同样在kube-system中创建证书的secret
-## 使用Helm部署dashboard
+
+### 使用Helm部署dashboard
+
 kubernetes-dashboard.yaml：
-```
+
+```text
 ingress:
   enabled: true
   hosts: 
@@ -594,7 +710,8 @@ helm install stable/kubernetes-dashboard \
 kubectl -n kube-system get secret | grep kubernetes-dashboard-token
 kubernetes-dashboard-token-tjj25                 kubernetes.io/service-account-token   3         37s
 ```
-```
+
+```text
 kubectl describe -n kube-system secret/kubernetes-dashboard-token-tjj25
 Name:         kubernetes-dashboard-token-tjj25
 Namespace:    kube-system
@@ -609,9 +726,12 @@ Data
 namespace:  11 bytes
 token:      eyJhbGciOiJSUzI1NiIsImtpZCI6IiJ9.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlLXN5c3RlbSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJrdWJlcm5ldGVzLWRhc2hib2FyZC10b2tlbi10amoyNSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImQxOTAyOWYwLTljYWMtMTFlOC04ZDk0LTA4MDAyN2RiNDAzYSIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlLXN5c3RlbTprdWJlcm5ldGVzLWRhc2hib2FyZCJ9.w1HZrtBOhANdqSRLNs22z8dQWd5IOCpEl9VyWQ6DUwhHfgpAlgdhEjTqH8TT0f4ftu_eSPnnUXWbsqTNDobnlxet6zVvZv1K-YmIO-o87yn2PGIrcRYWkb-ADWD6xUWzb0xOxu2834BFVC6T5p5_cKlyo5dwerdXGEMoz9OW0kYvRpKnx7E61lQmmacEeizq7hlIk9edP-ot5tCuIO_gxpf3ZaEHnspulceIRO_ltjxb8SvqnMglLfq6Bt54RpkUOFD1EKkgWuhlXJ8c9wJt_biHdglJWpu57tvOasXtNWaIzTfBaTiJ3AJdMB_n0bQt5CKAUnKBhK09NP3R0Qtqog
 ```
-在dashboard的登录窗口使用上面的token登录。
 
-# 参考
+在dashboard的登录窗口使用上面的token登录。 ![dashboard](.gitbook/assets/kubernetes-dashboard.png)
+
+## 参考
+
 [centos7下终端使用代理](https://blog.csdn.net/u012375924/article/details/78706910)  
 [docker 使用 socks5代理](https://www.jianshu.com/p/fef11e46ebf1)  
-[使用kubeadm安装kubernetes1.11](https://blog.frognew.com/2018/08/kubeadm-install-kubernetes-1.11.html)  
+[使用kubeadm安装kubernetes1.11](https://blog.frognew.com/2018/08/kubeadm-install-kubernetes-1.11.html)
+
