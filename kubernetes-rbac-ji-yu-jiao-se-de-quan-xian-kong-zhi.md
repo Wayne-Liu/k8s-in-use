@@ -183,8 +183,8 @@ kubectl get secret wayne-sa-token-w8gqx -o jsonpath={.data.token} -n kube-system
 # 会生成一长串base64的字符串
 ```
 使用这里的 token 去 Dashboard 页面进行登录：  
-[imag](/images/rbac-default.png)
-[imag](/images/rbac-kube-system.png)
+![imag](/images/rbac-default.png)
+![imag](/images/rbac-kube-system.png)
 我们可以看到上面的提示信息，这是因为我们登录进来后默认跳转到 default 命名空间，我们切换到 kube-system 命名空间下面就可以了：  
 我们可以看到可以访问pod列表了，但是也会有一些其他额外的提示：events is forbidden: User “system:serviceaccount:kube-system:haimaxy-sa” cannot list events in the namespace “kube-system”，这是因为当前登录用只被授权了访问 pod 和 deployment 的权限，同样的，访问下deployment看看可以了吗？
 
